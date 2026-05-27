@@ -1,134 +1,207 @@
-// gemini.js - Gemini API Integration Layer for SSE Code Review Streaming
+// Handles all Gemini API communication — prompt engineering, streaming, parsing.
+
 const API_KEY = import.meta.env.VITE_GEMINI_API_KEY
-const MODEL = 'gemini-3.5-flash'
+const MODEL   = 'gemini-3.5-flash'
 const API_URL = `https://generativelanguage.googleapis.com/v1beta/models/${MODEL}:streamGenerateContent?alt=sse&key=${API_KEY}`
 
-// Constructs the structured prompt enforcing strict JSON output schemas
-function buildPrompt(code, language) {
-  return `You are a senior software engineer doing a thorough code review.
-Analyse the following ${language} code and return a JSON object — nothing else, no markdown, no explanation outside the JSON.
+const LANGUAGE_NAMES = {
+  javascript:  'JavaScript',
+  typescript:  'TypeScript',
+  python:      'Python',
+  java:        'Java',
+  go:          'Go',
+  rust:        'Rust',
+  cpp:         'C++',
+  c:           'C',
+  csharp:      'C#',
+  ruby:        'Ruby',
+  php:         'PHP',
+  swift:       'Swift',
+  kotlin:      'Kotlin',
+  html:        'HTML',
+  css:         'CSS',
+  react:       'React (JSX)',
+  tailwind:    'Tailwind CSS',
+  nodejs:      'Node.js',
+  postgresql:  'PostgreSQL',
+  mysql:       'MySQL',
+  mongodb:     'MongoDB (NoSQL)',
+  graphql:     'GraphQL',
+  bash:        'Bash/Shell',
+  dart:        'Dart',
+  scala:       'Scala',
+}
 
-The JSON must follow this exact schema:
+function getLangName(key) {
+  return LANGUAGE_NAMES[key] || key
+}
+
+function buildPrompt(code, langKey) {
+  const langName = getLangName(langKey)
+
+  return `You are a senior software engineer performing a thorough code review.
+
+Analyse the ${langName} code below and respond with ONLY a raw JSON object.
+Do not use markdown. Do not use code fences. Do not add any explanation outside the JSON.
+Start your response with { and end with }
+
+Required JSON structure:
 {
-  "healthScore": <integer 0-100>,
-  "summary": "<2 sentence overall assessment>",
+  "healthScore": <integer from 0 to 100>,
+  "summary": "<2 sentences summarising the overall quality and main concerns>",
   "categories": {
     "bugs": [
       {
-        "severity": "critical" | "warning" | "info",
-        "title": "<short title>",
-        "description": "<what the problem is>",
-        "fix": "<concrete suggestion to fix it>"
+        "severity": "<critical|warning|info>",
+        "title": "<short descriptive title>",
+        "description": "<clear explanation of the problem>",
+        "fix": "<concrete actionable fix — include a short code snippet if helpful>"
       }
     ],
-    "performance": [ ...same shape... ],
-    "security": [ ...same shape... ],
-    "accessibility": [ ...same shape... ],
-    "bestPractices": [ ...same shape... ]
+    "performance": [],
+    "security": [],
+    "accessibility": [],
+    "bestPractices": []
   }
 }
 
-Rules:
-- healthScore: start at 100, deduct 15 per critical issue, 7 per warning, 2 per info
-- Each category must be an array — empty array [] if no issues found
-- severity must be exactly one of: "critical", "warning", "info"
-- fix must be a concrete code suggestion or action, not vague advice
-- Do not wrap the response in markdown code fences
-- Return only the raw JSON object
+Scoring rules:
+- Start at 100
+- Subtract 15 for each critical issue
+- Subtract 7 for each warning
+- Subtract 2 for each info
+- Minimum score is 0
 
-Code to review:
-\`\`\`${language}
-${code}
-\`\`\``
+Requirements:
+- Every category must be present as an array (empty array if no issues)
+- severity must be exactly one of: critical, warning, info
+- If the code has no issues in a category, return an empty array for that category
+- The fix field must be specific and actionable, not vague advice like "improve this"
+- Do not wrap your response in markdown or code fences under any circumstances
+
+${langName} code to review:
+\`\`\`
+${code.slice(0, 8000)}
+\`\`\`
+
+Respond with raw JSON only. Begin your response with {`
 }
 
-// Establishes Server-Sent Events (SSE) connection to stream generative AI responses
 export async function reviewCode({ code, language, onChunk, onDone, onError }) {
   if (!API_KEY) {
-    onError('API key is missing. Check your .env file.')
+    onError('API key missing — check your .env file.')
     return
   }
 
   if (!code.trim()) {
-    onError('No code provided.')
+    onError('No code to review.')
     return
   }
 
   try {
-    const response = await fetch(API_URL, {
+    const res = await fetch(API_URL, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        contents: [
-          {
-            parts: [{ text: buildPrompt(code, language) }],
-          },
-        ],
+        contents: [{
+          parts: [{ text: buildPrompt(code, language) }],
+        }],
         generationConfig: {
-          temperature: 0.2,
-          maxOutputTokens: 2048,
+          temperature:      0.1,
+          maxOutputTokens:  8192,
+          topP:             0.8,
+          topK:             10,
         },
       }),
     })
 
-    if (!response.ok) {
-      const err = await response.json().catch(() => ({}))
-      const msg = err?.error?.message || `API error ${response.status}`
+    if (!res.ok) {
+      const body = await res.json().catch(() => ({}))
+      const msg  = body?.error?.message || `API error ${res.status}`
+
+      if (res.status === 429 || msg.toLowerCase().includes('quota') || msg.toLowerCase().includes('demand')) {
+        onError('Rate limit reached — Gemini is busy. Wait 30 seconds and try again.')
+        return
+      }
+
       onError(msg)
       return
     }
 
-    const reader = response.body.getReader()
+    const reader  = res.body.getReader()
     const decoder = new TextDecoder()
+    let   buffer  = ''
 
     while (true) {
       const { done, value } = await reader.read()
       if (done) break
 
-      const raw = decoder.decode(value, { stream: true })
-      const lines = raw.split('\n')
-      
+      buffer += decoder.decode(value, { stream: true })
+
+      // Process complete SSE lines only — buffer incomplete ones
+      const lines = buffer.split('\n')
+      buffer = lines.pop() 
       for (const line of lines) {
         if (!line.startsWith('data: ')) continue
-
         const jsonStr = line.slice(6).trim()
         if (!jsonStr || jsonStr === '[DONE]') continue
 
         try {
           const parsed = JSON.parse(jsonStr)
-          const text = parsed?.candidates?.[0]?.content?.parts?.[0]?.text
+          const text   = parsed?.candidates?.[0]?.content?.parts?.[0]?.text
           if (text) onChunk(text)
         } catch {
-          // Skip partial JSON chunks across buffer boundaries and await completion
+          // Skip partial JSON chunks acros buffer boundaries and await completion
         }
       }
+    }
+
+    if (buffer.startsWith('data: ')) {
+      const jsonStr = buffer.slice(6).trim()
+      try {
+        const parsed = JSON.parse(jsonStr)
+        const text   = parsed?.candidates?.[0]?.content?.parts?.[0]?.text
+        if (text) onChunk(text)
+      } catch { /* ignore */ }
     }
 
     onDone()
   } catch (err) {
     if (err.name === 'AbortError') return
-    onError(err.message || 'Network error. Check your connection.')
+    onError('Network error — check your connection and try again.')
   }
 }
 
-// Parses accumulated raw text into validated dashboard JSON objects
 export function parseReview(rawText) {
+  if (!rawText?.trim()) return null
+
   try {
-    const cleaned = rawText
-      .replace(/^```json\s*/i, '')
-      .replace(/^```\s*/i, '')
-      .replace(/```\s*$/i, '')
-      .trim()
+    let cleaned = rawText.trim()
+
+    
+    cleaned = cleaned.replace(/^```(?:json)?\s*/i, '').replace(/```\s*$/i, '').trim()
+
+    const start = cleaned.indexOf('{')
+    const end   = cleaned.lastIndexOf('}')
+
+    if (start === -1 || end === -1) return null
+
+    cleaned = cleaned.slice(start, end + 1)
 
     const parsed = JSON.parse(cleaned)
 
-    if (
-      typeof parsed.healthScore !== 'number' ||
-      !parsed.categories ||
-      !Array.isArray(parsed.categories.bugs)
-    ) {
-      return null
-    }
+    if (typeof parsed.healthScore !== 'number') return null
+    if (typeof parsed.summary     !== 'string') return null
+    if (!parsed.categories)                     return null
+
+    const cats = ['bugs', 'performance', 'security', 'accessibility', 'bestPractices']
+    cats.forEach(cat => {
+      if (!Array.isArray(parsed.categories[cat])) {
+        parsed.categories[cat] = []
+      }
+    })
+
+    parsed.healthScore = Math.max(0, Math.min(100, Math.round(parsed.healthScore)))
 
     return parsed
   } catch {
