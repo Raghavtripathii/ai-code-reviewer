@@ -1,9 +1,9 @@
 # AI Code Reviewer
 
-**[→ Live Demo](https://ai-code-reviewer-liart-xl.vercel.app)**
+**[→ Live Demo](https://ai-code-reviewer-liart-xi.vercel.app)**
+> No sign-up needed. Paste code, pick a language, click Review.
 
 ![Demo](./demo.gif)
-> No sign-up needed. Paste code, pick a language, click Review.
 
 Paste any code, pick the language, get back a structured review — bugs, security issues, performance problems, accessibility notes, and best practice violations — broken into categories with severity levels and concrete fix suggestions. Results stream in live as Gemini generates them.
 
