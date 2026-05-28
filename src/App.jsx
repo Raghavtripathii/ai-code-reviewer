@@ -1,10 +1,8 @@
-import { useState, useRef } from 'react'
+import { useState, useRef, useEffect } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { reviewCode, parseReview } from './gemini.js'
 import ReviewPanel from './components/ReviewPanel.jsx'
 
-// Example snippets — these appear as quick-load buttons on the editor
-// Each one has a deliberately interesting bug so the review is always impressive
 const EXAMPLES = [
   {
     label: 'SQL Injection',
@@ -58,7 +56,7 @@ function UserList() {
 setInterval(trackClicks, 5000)`,
   },
   {
-    label: 'CSS specificity mess',
+    label: 'CSS specificity',
     language: 'css',
     code: `#app #main .container div.card p.text span {
   color: red !important;
@@ -79,23 +77,45 @@ setInterval(trackClicks, 5000)`,
 ]
 
 const LANGUAGES = [
-  // backend & systems
   'javascript', 'typescript', 'python', 'java', 'go',
   'rust', 'cpp', 'c', 'csharp', 'ruby', 'php', 'swift', 'kotlin',
-  // frontend
   'html', 'css', 'react', 'tailwind',
-  // runtime & databases
   'nodejs', 'postgresql', 'mysql', 'mongodb', 'graphql',
 ]
 
+// grab last 3 reviews from storage
+function loadHistory() {
+  try {
+    return JSON.parse(localStorage.getItem('review_history') || '[]')
+  } catch {
+    return []
+  }
+}
+
+// TODO: maybe let user configure how many to keep
+function saveToHistory(entry) {
+  try {
+    const existing = loadHistory()
+    const updated  = [entry, ...existing].slice(0, 3)
+    localStorage.setItem('review_history', JSON.stringify(updated))
+  } catch {
+    // fails silently in private browsing, fine
+  }
+}
+
 export default function App() {
-  const [code, setCode]           = useState('')
-  const [language, setLanguage]   = useState('javascript')
-  const [phase, setPhase]         = useState('idle')   // idle | streaming | done | error
-  const [rawText, setRawText]     = useState('')
-  const [review, setReview]       = useState(null)
-  const [errorMsg, setErrorMsg]   = useState('')
-  const accRef                    = useRef('')
+  const [code, setCode]         = useState('')
+  const [language, setLanguage] = useState('javascript')
+  const [phase, setPhase]       = useState('idle')
+  const [rawText, setRawText]   = useState('')
+  const [review, setReview]     = useState(null)
+  const [errorMsg, setErrorMsg] = useState('')
+  const [history, setHistory]   = useState(loadHistory)
+  const [showHistory, setShowHistory] = useState(false)
+  const accRef                  = useRef('')
+
+  const lineCount = code ? code.split('\n').length : 0
+  const charCount = code.length
 
   function loadExample(ex) {
     setCode(ex.code)
@@ -103,6 +123,15 @@ export default function App() {
     setPhase('idle')
     setReview(null)
     setRawText('')
+    setShowHistory(false)
+  }
+
+  function loadFromHistory(entry) {
+    setReview(entry.review)
+    setCode(entry.code)
+    setLanguage(entry.language)
+    setPhase('done')
+    setShowHistory(false)
   }
 
   async function handleReview() {
@@ -126,6 +155,16 @@ export default function App() {
         if (parsed) {
           setReview(parsed)
           setPhase('done')
+
+          const entry = {
+            id:        Date.now(),
+            language,
+            code:      code.slice(0, 200),
+            review:    parsed,
+            timestamp: new Date().toLocaleTimeString(),
+          }
+          saveToHistory(entry)
+          setHistory(loadHistory())
         } else {
           setErrorMsg('Gemini returned an unexpected format. Try again.')
           setPhase('error')
@@ -149,8 +188,6 @@ export default function App() {
 
   return (
     <div style={{ minHeight: '100vh', display: 'flex', flexDirection: 'column' }}>
-
-      {/* Purple glow at top */}
       <div style={{
         position: 'fixed', inset: 0, pointerEvents: 'none', zIndex: 0,
         background: 'radial-gradient(ellipse 70% 40% at 50% -10%, rgba(124,106,247,0.14) 0%, transparent 65%)',
@@ -173,8 +210,9 @@ export default function App() {
             <div style={{
               width: 34, height: 34,
               background: 'linear-gradient(135deg, #7c6af7, #f472b6)',
-              borderRadius: 9, display: 'flex', alignItems: 'center',
-              justifyContent: 'center', fontSize: 18,
+              borderRadius: 9,
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+              fontSize: 18,
             }}>
               ⚡
             </div>
@@ -188,7 +226,24 @@ export default function App() {
             </div>
           </div>
 
-          <div style={{ display: 'flex', gap: 8 }}>
+          <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+            {/* only show if there's something in history */}
+            {history.length > 0 && (
+              <button
+                onClick={() => setShowHistory(v => !v)}
+                style={{
+                  padding: '7px 14px',
+                  border: `1px solid ${showHistory ? 'var(--purple)' : 'var(--border-mid)'}`,
+                  borderRadius: 8,
+                  fontSize: 12,
+                  color: showHistory ? 'var(--purple)' : 'var(--text-sub)',
+                  background: showHistory ? 'var(--purple-glow)' : 'transparent',
+                  transition: 'all 0.15s',
+                }}
+              >
+                Recent ({history.length})
+              </button>
+            )}
             {phase === 'done' && (
               <button
                 onClick={handleReset}
@@ -209,27 +264,77 @@ export default function App() {
           </div>
         </header>
 
+        {/* history dropdown */}
+        <AnimatePresence>
+          {showHistory && (
+            <motion.div
+              initial={{ opacity: 0, y: -8 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -8 }}
+              style={{
+                position: 'sticky', top: 65, zIndex: 9,
+                background: 'var(--bg-surface)',
+                borderBottom: '1px solid var(--border)',
+                padding: '1rem 2rem',
+                display: 'flex',
+                gap: '0.75rem',
+                flexWrap: 'wrap',
+              }}
+            >
+              <div style={{ width: '100%', fontSize: 11, color: 'var(--text-muted)', fontWeight: 600, letterSpacing: '0.08em', textTransform: 'uppercase', marginBottom: 4 }}>
+                Recent reviews — click to reload
+              </div>
+              {history.map(entry => (
+                <button
+                  key={entry.id}
+                  onClick={() => loadFromHistory(entry)}
+                  style={{
+                    padding: '8px 14px',
+                    background: 'var(--bg-elevated)',
+                    border: '1px solid var(--border)',
+                    borderRadius: 8,
+                    fontSize: 12,
+                    color: 'var(--text-sub)',
+                    cursor: 'pointer',
+                    textAlign: 'left',
+                    transition: 'border-color 0.15s',
+                    display: 'flex',
+                    flexDirection: 'column',
+                    gap: 2,
+                  }}
+                  onMouseEnter={e => e.currentTarget.style.borderColor = 'var(--purple)'}
+                  onMouseLeave={e => e.currentTarget.style.borderColor = 'var(--border)'}
+                >
+                  <span style={{ fontFamily: 'var(--font-mono)', fontSize: 11 }}>{entry.language}</span>
+                  <span style={{ color: 'var(--text-muted)', fontSize: 10 }}>
+                    Score: {entry.review.healthScore} · {entry.timestamp}
+                  </span>
+                </button>
+              ))}
+            </motion.div>
+          )}
+        </AnimatePresence>
+
         {/* Main layout */}
         <main style={{
           flex: 1,
           display: 'grid',
-          gridTemplateColumns: phase === 'done' ? '1fr 1fr' : '1fr',
-          maxWidth: phase === 'done' ? '100%' : 800,
-          margin: phase === 'done' ? '0' : '0 auto',
+          gridTemplateColumns: phase === 'done' || phase === 'streaming' ? '1fr 1fr' : '1fr',
+          maxWidth: phase === 'done' || phase === 'streaming' ? '100%' : 820,
+          margin: phase === 'done' || phase === 'streaming' ? '0' : '0 auto',
           width: '100%',
           transition: 'all 0.4s ease',
         }}>
 
-          {/* Left panel — code editor */}
+          {/* left side — editor */}
           <div style={{
             padding: '2rem',
-            borderRight: phase === 'done' ? '1px solid var(--border)' : 'none',
+            borderRight: (phase === 'done' || phase === 'streaming') ? '1px solid var(--border)' : 'none',
             display: 'flex',
             flexDirection: 'column',
             gap: '1.25rem',
           }}>
 
-            {/* Only show hero text when idle */}
             {phase === 'idle' && (
               <motion.div
                 initial={{ opacity: 0, y: 16 }}
@@ -251,12 +356,11 @@ export default function App() {
                 </h1>
                 <p style={{ fontSize: 14, color: 'var(--text-sub)', lineHeight: 1.7 }}>
                   Bugs, performance, security, accessibility, best practices —
-                  structured and actionable, not a wall of text.
+                  structured and actionable. Supports 21 languages.
                 </p>
               </motion.div>
             )}
 
-            {/* Example snippets */}
             {phase === 'idle' && (
               <div>
                 <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--text-muted)', letterSpacing: '0.08em', textTransform: 'uppercase', marginBottom: 8 }}>
@@ -273,8 +377,8 @@ export default function App() {
                         borderRadius: 20,
                         fontSize: 12,
                         color: 'var(--text-sub)',
-                        transition: 'all 0.15s',
                         background: 'var(--bg-surface)',
+                        transition: 'all 0.15s',
                       }}
                       onMouseEnter={e => {
                         e.currentTarget.style.borderColor = 'var(--purple)'
@@ -292,12 +396,12 @@ export default function App() {
               </div>
             )}
 
-            {/* Language selector */}
-            <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-              <div style={{ fontSize: 11, color: 'var(--text-muted)', fontWeight: 600, letterSpacing: '0.08em', textTransform: 'uppercase' }}>
+            {/* language picker */}
+            <div style={{ display: 'flex', gap: 8, alignItems: 'flex-start', flexWrap: 'wrap' }}>
+              <div style={{ fontSize: 11, color: 'var(--text-muted)', fontWeight: 600, letterSpacing: '0.08em', textTransform: 'uppercase', paddingTop: 5 }}>
                 Language
               </div>
-              <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', maxWidth: '100%' }}>
+              <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', flex: 1 }}>
                 {LANGUAGES.map(lang => (
                   <button
                     key={lang}
@@ -320,36 +424,46 @@ export default function App() {
               </div>
             </div>
 
-            {/* Code textarea */}
             <div style={{
               background: 'var(--bg-surface)',
               border: '1px solid var(--border)',
               borderRadius: 'var(--radius-lg)',
               overflow: 'hidden',
               flex: 1,
+              display: 'flex',
+              flexDirection: 'column',
             }}>
+              {/* fake titlebar */}
               <div style={{
                 padding: '8px 12px',
                 borderBottom: '1px solid var(--border)',
                 display: 'flex',
                 alignItems: 'center',
-                gap: 6,
+                justifyContent: 'space-between',
               }}>
-                {['#f87171', '#fbbf24', '#34d399'].map(c => (
-                  <div key={c} style={{ width: 10, height: 10, borderRadius: '50%', background: c, opacity: 0.7 }} />
-                ))}
-                <span style={{ fontSize: 11, color: 'var(--text-muted)', marginLeft: 4, fontFamily: 'var(--font-mono)' }}>
-                  {language}
-                </span>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                  {['#f87171', '#fbbf24', '#34d399'].map(c => (
+                    <div key={c} style={{ width: 10, height: 10, borderRadius: '50%', background: c, opacity: 0.7 }} />
+                  ))}
+                  <span style={{ fontSize: 11, color: 'var(--text-muted)', marginLeft: 4, fontFamily: 'var(--font-mono)' }}>
+                    {language}
+                  </span>
+                </div>
+                {code && (
+                  <span style={{ fontSize: 11, color: 'var(--text-muted)', fontFamily: 'var(--font-mono)' }}>
+                    {lineCount} {lineCount === 1 ? 'line' : 'lines'} · {charCount} chars
+                  </span>
+                )}
               </div>
+
               <textarea
                 value={code}
                 onChange={e => setCode(e.target.value)}
                 placeholder={`Paste your ${language} code here...`}
                 spellCheck={false}
                 style={{
-                  width: '100%',
-                  minHeight: 320,
+                  flex: 1,
+                  minHeight: 300,
                   padding: '1rem',
                   fontSize: 13,
                   lineHeight: 1.7,
@@ -360,11 +474,11 @@ export default function App() {
                   display: 'block',
                   border: 'none',
                   outline: 'none',
+                  width: '100%',
                 }}
               />
             </div>
 
-            {/* Submit button */}
             <button
               onClick={handleReview}
               disabled={!canSubmit}
@@ -383,7 +497,6 @@ export default function App() {
               {phase === 'streaming' ? 'Analysing...' : 'Review Code →'}
             </button>
 
-            {/* Error */}
             {phase === 'error' && (
               <motion.div
                 initial={{ opacity: 0, y: -8 }}
@@ -402,7 +515,7 @@ export default function App() {
             )}
           </div>
 
-          {/* Right panel — review results */}
+          {/* right side — review output */}
           <AnimatePresence>
             {(phase === 'streaming' || phase === 'done') && (
               <motion.div
