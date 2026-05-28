@@ -1,23 +1,20 @@
+import { useState } from 'react'
 import { motion } from 'framer-motion'
 
-// Severity config — color and label for each level
 const SEVERITY = {
   critical: { color: '#f87171', bg: 'rgba(248,113,113,0.1)', border: 'rgba(248,113,113,0.25)', label: 'Critical' },
   warning:  { color: '#fbbf24', bg: 'rgba(251,191,36,0.1)',  border: 'rgba(251,191,36,0.25)',  label: 'Warning'  },
   info:     { color: '#60a5fa', bg: 'rgba(96,165,250,0.1)',  border: 'rgba(96,165,250,0.25)',  label: 'Info'     },
 }
 
-// Category config — display name and icon for each review section
 const CATEGORIES = [
-  { key: 'bugs',          label: 'Bugs',           icon: '🐛' },
-  { key: 'security',      label: 'Security',        icon: '🔒' },
-  { key: 'performance',   label: 'Performance',     icon: '⚡' },
-  { key: 'accessibility', label: 'Accessibility',   icon: '♿' },
-  { key: 'bestPractices', label: 'Best Practices',  icon: '✨' },
+  { key: 'bugs',          label: 'Bugs',          icon: '🐛' },
+  { key: 'security',      label: 'Security',       icon: '🔒' },
+  { key: 'performance',   label: 'Performance',    icon: '⚡' },
+  { key: 'accessibility', label: 'Accessibility',  icon: '♿' },
+  { key: 'bestPractices', label: 'Best Practices', icon: '✨' },
 ]
 
-// HealthScore — the big number at the top
-// Color shifts from red → yellow → green based on score
 function HealthScore({ score }) {
   const color =
     score >= 80 ? '#34d399' :
@@ -42,12 +39,9 @@ function HealthScore({ score }) {
         marginBottom: '1.5rem',
       }}
     >
-      {/* Circular progress ring */}
       <div style={{ position: 'relative', width: 80, height: 80, flexShrink: 0 }}>
         <svg width="80" height="80" viewBox="0 0 80 80">
-          {/* Track */}
           <circle cx="40" cy="40" r="36" fill="none" stroke="var(--bg-elevated)" strokeWidth="6" />
-          {/* Progress */}
           <circle
             cx="40" cy="40" r="36"
             fill="none"
@@ -68,20 +62,52 @@ function HealthScore({ score }) {
           {score}
         </div>
       </div>
-
       <div>
         <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--text-muted)', letterSpacing: '0.08em', textTransform: 'uppercase', marginBottom: 4 }}>
           Health Score
         </div>
         <div style={{ fontSize: 22, fontWeight: 800, color, marginBottom: 2 }}>
-          {score >= 80 ? 'Good' : score >= 60 ? 'Needs work' : 'Critical issues'}
+          {score >= 80 ? 'Good shape' : score >= 60 ? 'Needs work' : 'Critical issues'}
         </div>
       </div>
     </motion.div>
   )
 }
 
-// One individual issue inside a category
+// copies fix to clipboard, shows tick for a sec then resets
+// TODO: might be nice to also copy the issue title
+function CopyButton({ text }) {
+  const [copied, setCopied] = useState(false)
+
+  function handleCopy() {
+    navigator.clipboard.writeText(text).then(() => {
+      setCopied(true)
+      setTimeout(() => setCopied(false), 2000)
+    })
+  }
+
+  return (
+    <button
+      onClick={handleCopy}
+      title="Copy fix to clipboard"
+      style={{
+        padding: '3px 8px',
+        border: '1px solid rgba(255,255,255,0.1)',
+        borderRadius: 5,
+        fontSize: 10,
+        color: copied ? '#34d399' : 'var(--text-muted)',
+        background: 'var(--bg-elevated)',
+        cursor: 'pointer',
+        transition: 'all 0.15s',
+        flexShrink: 0,
+        fontFamily: 'var(--font)',
+      }}
+    >
+      {copied ? '✓ Copied' : 'Copy fix'}
+    </button>
+  )
+}
+
 function IssueCard({ issue, index }) {
   const sev = SEVERITY[issue.severity] || SEVERITY.info
 
@@ -98,7 +124,6 @@ function IssueCard({ issue, index }) {
         marginBottom: '0.75rem',
       }}
     >
-      {/* Severity badge + title */}
       <div style={{ display: 'flex', alignItems: 'flex-start', gap: 8, marginBottom: 6 }}>
         <span style={{
           padding: '2px 8px',
@@ -120,12 +145,10 @@ function IssueCard({ issue, index }) {
         </div>
       </div>
 
-      {/* Description */}
       <div style={{ fontSize: 12, color: 'var(--text-sub)', lineHeight: 1.6, marginBottom: 8 }}>
         {issue.description}
       </div>
 
-      {/* Fix suggestion */}
       {issue.fix && (
         <div style={{
           background: 'var(--bg-elevated)',
@@ -137,7 +160,10 @@ function IssueCard({ issue, index }) {
           lineHeight: 1.6,
           borderLeft: '3px solid var(--green)',
         }}>
-          <span style={{ color: 'var(--text-muted)', fontFamily: 'var(--font)', marginRight: 6 }}>Fix:</span>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 8, marginBottom: 4 }}>
+            <span style={{ color: 'var(--text-muted)', fontFamily: 'var(--font)', fontSize: 11 }}>Suggested fix</span>
+            <CopyButton text={issue.fix} />
+          </div>
           {issue.fix}
         </div>
       )}
@@ -145,7 +171,6 @@ function IssueCard({ issue, index }) {
   )
 }
 
-// One category section (e.g. "Bugs", "Security")
 function CategorySection({ category, issues, index }) {
   if (!issues || issues.length === 0) {
     return (
@@ -175,7 +200,6 @@ function CategorySection({ category, issues, index }) {
 
   return (
     <div style={{ marginBottom: '1.25rem' }}>
-      {/* Category header */}
       <div style={{
         display: 'flex',
         alignItems: 'center',
@@ -198,7 +222,6 @@ function CategorySection({ category, issues, index }) {
           {issues.length}
         </span>
       </div>
-
       {issues.map((issue, i) => (
         <IssueCard key={i} issue={issue} index={i} />
       ))}
@@ -206,7 +229,6 @@ function CategorySection({ category, issues, index }) {
   )
 }
 
-// Skeleton shown while streaming — gives the user something to look at
 function StreamingSkeleton({ rawText }) {
   return (
     <div>
@@ -223,16 +245,13 @@ function StreamingSkeleton({ rawText }) {
         {[80, 60, 45].map((w, i) => (
           <div key={i} style={{
             height: 12, width: `${w}%`, borderRadius: 6, marginBottom: 8,
-            background: 'var(--bg-elevated)',
-            animation: 'shimmer 1.5s infinite linear',
             backgroundImage: 'linear-gradient(90deg, var(--bg-elevated) 0%, var(--bg-hover) 50%, var(--bg-elevated) 100%)',
             backgroundSize: '200% 100%',
+            animation: 'shimmer 1.5s infinite linear',
           }} />
         ))}
         <style>{`@keyframes shimmer { 0%{background-position:200% 0} 100%{background-position:-200% 0} }`}</style>
       </div>
-
-      {/* Show raw stream so user sees something happening */}
       {rawText && (
         <div style={{
           background: 'var(--bg-surface)',
@@ -260,7 +279,6 @@ function StreamingSkeleton({ rawText }) {
   )
 }
 
-// Main exported component
 export default function ReviewPanel({ review, streaming, rawText }) {
   if (streaming && !review) {
     return <StreamingSkeleton rawText={rawText} />
@@ -270,24 +288,16 @@ export default function ReviewPanel({ review, streaming, rawText }) {
 
   return (
     <div>
-      {/* Summary */}
       {review.summary && (
         <motion.p
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
-          style={{
-            fontSize: 13,
-            color: 'var(--text-sub)',
-            lineHeight: 1.7,
-            marginBottom: '1.25rem',
-          }}
+          style={{ fontSize: 13, color: 'var(--text-sub)', lineHeight: 1.7, marginBottom: '1.25rem' }}
         >
           {review.summary}
         </motion.p>
       )}
-
       <HealthScore score={review.healthScore} />
-
       {CATEGORIES.map((cat, i) => (
         <CategorySection
           key={cat.key}
