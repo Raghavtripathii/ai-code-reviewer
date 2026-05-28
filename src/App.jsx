@@ -356,7 +356,7 @@ export default function App() {
                 </h1>
                 <p style={{ fontSize: 14, color: 'var(--text-sub)', lineHeight: 1.7 }}>
                   Bugs, performance, security, accessibility, best practices —
-                  structured and actionable. Supports 21 languages.
+                  structured and actionable. Supports 22 languages.
                 </p>
               </motion.div>
             )}
@@ -478,6 +478,18 @@ export default function App() {
                 }}
               />
             </div>
+
+            {code.length > 8000 && (
+              <div style={{
+                fontSize: 12, color: 'var(--yellow)',
+                background: 'var(--yellow-bg)',
+                border: '1px solid rgba(251,191,36,0.3)',
+                borderRadius: 'var(--radius)',
+                padding: '0.6rem 0.9rem',
+              }}>
+                ⚠️ Code exceeds 8,000 characters — only the first 8,000 will be reviewed.
+              </div>
+            )}
 
             <button
               onClick={handleReview}
