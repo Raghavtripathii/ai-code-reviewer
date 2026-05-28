@@ -3,6 +3,7 @@
 const API_KEY = import.meta.env.VITE_GEMINI_API_KEY
 const MODEL   = 'gemini-3.5-flash'
 const API_URL = `https://generativelanguage.googleapis.com/v1beta/models/${MODEL}:streamGenerateContent?alt=sse&key=${API_KEY}`
+export const MAX_CODE_LENGTH = 8000
 
 const LANGUAGE_NAMES = {
   javascript:  'JavaScript',
